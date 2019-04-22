@@ -1,15 +1,10 @@
-PROJECT=alpine-nginx-phpfpm
-DESCRIPTION="Alpine Linux with Nginx + PHP-FPM 7.2 + LOGZ (for yii2)"
-NAMESPACE=aleksu
+include .env
+export
 
-WEBPORT=80
-LOGZPORT=1234
-ERRORS=0
-
-VERSION=$(shell cat .version)
+MAJORVER=$(shell cat .version)
+COMMIT=$(shell git rev-list --count HEAD)
+VERSION=${MAJORVER}.${COMMIT}
 PREFIX=$(shell date +"%Y%m%d%H%M")-$(shell whoami)
-
-LANG=en_US.UTF-8
 
 CR=\033[0;91m
 CG=\033[0;92m
@@ -17,54 +12,48 @@ CY=\033[0;93m
 CB=\033[0;94m
 CP=\033[0;95m
 CC=\033[0;96m
-CW=\033[00m
+CW=\033[0;97m
+C0=\033[00m
 
 all: help
 
 commit: ## Commit changes to git
-	@printf "${CG}>>>>>>>>>>>>>> COMMITING CHANGES >>>>>>>>>>>>>>>>>>>>>>>>> ${CW} \n"
+	@printf "${CG}>>>>>>>>>>>>>> COMMITING CHANGES >>>>>>>>>>>>>>>>>>>>>>>>> ${C0} \n"
 	git add -A .
-	git commit -m "commit-$(PREFIX)"
+	git commit -m "commit-$(VERSION)"
 	git push origin master
-	@printf "${CG}<<<<<<<<<<<<<< DONE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${CW} \n"
+	@printf "${CG}<<<<<<<<<<<<<< DONE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${C0} \n"
 
-release: ## Make next version and push to git
-	@printf "${CG}>>>>>>>>>>>>>> RELEASING NEW VERSION >>>>>>>>>>>>>>>>>>>>> ${CW} \n"
-	@printf "${CG}>> Releasing version: ${CY}$(VERSION)${CW} \n"
-	git tag release-$(VERSION)
-	git push origin tag release-$(VERSION) master:release
-	$(eval NEXTVERSION := $(shell awk -F '.' '{build=$$3+1} END {print $$1"."$$2"."build}' .version))
-	@printf "${CG}>> Setting next release version: ${CY}$(NEXTVERSION) ${CW} \n"
-	echo $(NEXTVERSION) > .version
-	git add -A .
-	git commit -m "commit-$(PREFIX)"
-	git push origin master
-	@printf "${CG}<<<<<<<<<<<<<< DONE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${CW} \n"
+images: ## Build docker images and upload to Registry
+	@printf "${CG}>>>>>>>>>>>>>> BUILDING DOCKER IMAGE >>>>>>>>>>>>>>>>>>>>>>>>>>> ${C0} \n"
+	docker build --rm -t $(REGISTRY)/$(NAMESPACE)/$(PROJECT):$(VERSION) -f ./Dockerfile .
+	docker tag $(REGISTRY)/$(NAMESPACE)/$(PROJECT):$(VERSION) $(REGISTRY)/$(NAMESPACE)/$(PROJECT):latest
+	@printf "${CG}>>>>>>>>>>>>>> PUSHING IMAGES TO REGISTRY >>>>>>>>>>>>>>>>>>>>>> ${C0} \n"
+	docker push $(REGISTRY)/$(NAMESPACE)/$(PROJECT):latest
+	@printf "${CG}>>>>>>>>>>>>>> CLEANING EMPTY DOCKER IMAGES >>>>>>>>>>>>>>>>>>>> ${C0} \n"
+	@docker images -f dangling=true -q | xargs -r docker rmi
+	@printf "${CG}<<<<<<<<<<<<<< DONE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${C0} \n"
 
-images: ## Build Docker images
-	@printf "${CG}>>>>>>>>>>>>>> BUILDING DOCKER IMAGE >>>>>>>>>>>>>>>>>>>>>>>>>>> ${CW} \n"
-	@docker build --rm -t $(NAMESPACE)/$(PROJECT):$(VERSION) -f ./Dockerfile .
-	@docker tag $(NAMESPACE)/$(PROJECT):$(VERSION) $(REGISTRY)/$(NAMESPACE)/$(PROJECT):latest
-	@printf "${CG}>>>>>>>>>>>>>> CLEANING EMPTY DOCKER IMAGES >>>>>>>>>>>>>>>>>>>> ${CW} \n"
-	@docker image prune -f
-	@printf "${CG}<<<<<<<<<<<<<< DONE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${CW} \n"
+clean: ## Stop and Delete all containers and images
+	@printf "${CG}>> Stopping running containers...${C0} \n"
+	@docker ps | awk '/$(PROJECT)/ {print $$1}' | xargs -r docker stop
+	@printf "${CG}>> Deleting containers...${C0} \n"
+	@docker ps -a | awk '/$(PROJECT)/ {print $$1}' | xargs -r docker rm -f
+	@printf "${CG}>> Deleting images...${C0} \n"
+	@docker images | awk '/$(PROJECT)/ {print $$3}'| xargs -r docker rmi -f
+	@printf "${CG}>> Done.${C0} \n"
 
-push: ## Push Docker images to Registry
-	@printf "${CG}>>>>>>>>>>>>>> PUSHING IMAGES TO REGISTRY >>>>>>>>>>>>>>>>>>>>>> ${CW} \n"
-	@docker push $(NAMESPACE)/$(PROJECT):latest
-	@printf "${CG}<<<<<<<<<<<<<< DONE <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ${CW} \n"
+env: ## Show environment variables
+	@env
 
-clean: ## Clean docker images
-	@printf "${CG}>> Stopping running containers...${CW} \n"
-	docker ps | grep $(PROJECT) | awk '{print $1}' | xargs -r docker stop
-	@printf "${CG}>> Deleting containers...${CW} \n"
-	docker ps -a | grep $(PROJECT) | awk '{print $1}' | xargs -r docker rm -f
-	@printf "${CG}>> Deleting images...${CW} \n"
-	docker images | grep $(PROJECT) | awk '{print $1}'| xargs -r docker rmi -f
-	@printf "${CG}>> Done.${CW} \n"
+version: ## Show version
+	@echo ${VERSION}
 
-help: ## Show Help
-	grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+help: ## Show this help
+	@printf "${CW}NAME${C0}\n      ${CC}$(PROJECT)${C0}\n\n"
+	@printf "${CW}DESCRIPTION${C0}\n      ${CC}$(DESCRIPTION)${C0}\n\n"
+	@printf "${CW}VERSION${C0}\n      ${CC}${VERSION}${C0}\n\n${CW}OPTIONS${C0}\n"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' Makefile | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "      ${CC}%-20s${C0} %s\n", $$1, $$2}'
 
 .SILENT: ;
 .PHONY: all

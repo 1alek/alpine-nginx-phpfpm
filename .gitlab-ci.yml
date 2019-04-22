@@ -1,0 +1,16 @@
+stages:
+    - build
+
+variables:
+    GIT_STRATEGY: clone
+
+Build Images:
+    stage: build
+    script:
+        - make clean
+        - make images
+    tags:
+        - builder
+        - alpine-nginx-phpfpm
+    only:
+        - master

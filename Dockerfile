@@ -1,13 +1,16 @@
 FROM alpine:latest
-MAINTAINER Alek <builder@alek.su>
 
 ENV php_conf /etc/php7/php.ini 
 ENV fpm_conf /etc/php7/php-fpm.conf
 
-RUN apk add --no-cache bash \
+RUN apk add --no-cache \
+    bash \
     openssh-client \
     wget \
     nginx \
+    nginx-mod-http-echo \
+    nginx-mod-http-upstream-fair \
+    nginx-mod-http-headers-more \
     supervisor \
     curl \
     git \
@@ -21,6 +24,7 @@ RUN apk add --no-cache bash \
     php7-intl \
     php7-json \
     php7-mbstring \
+    php7-mysqli \
     php7-opcache \
     php7-pdo \
     php7-session \
@@ -40,14 +44,15 @@ RUN apk add --no-cache bash \
     # && rm -rf /var/cache/*
 
 # Install logz
-ADD conf/logz-musl /logz
-RUN chmod +x /logz
+RUN curl --output /logz https://github.com/1alek/logz/releases/download/v1.3.1-99-musl/logz-musl && chmod +x /logz
 
-# Copy supervisord config
-ADD conf/supervisord.conf /etc/supervisord.conf
+# Copy startup scripts
+ADD assets/supervisord.conf /etc/supervisord.conf
+ADD assets/start.sh /start.sh
+RUN chmod +x /start.sh
 
-# Copy nginx config
-ADD conf/nginx.conf /etc/nginx/nginx.conf
+# Copy nginx configs
+ADD assets/nginx.conf /etc/nginx/nginx.conf
 
 # Configure PHP
 RUN sed -i -e "s/;cgi.fix_pathinfo=1/cgi.fix_pathinfo=0/g" ${php_conf} && \
@@ -73,11 +78,12 @@ RUN sed -i -e "s/;cgi.fix_pathinfo=1/cgi.fix_pathinfo=0/g" ${php_conf} && \
     ln -sf /dev/stderr /var/log/fpm-access.log && ln -sf /dev/stderr /var/log/fpm-error.log
 
 # Init Empty Project
-RUN rm -Rf /var/www/* && mkdir -p /var/www/html/ && echo "<?php phpinfo();" > /var/www/html/index.php
-ADD conf/default.conf /etc/nginx/conf.d/default.conf
-
-# Fix permissions
-RUN chown -R nginx. /var/www/html/
+ADD assets/default.conf /etc/nginx/conf.d/default.conf
+ADD assets/10-monitoring-basic.conf /etc/nginx/conf.d/10-monitoring-basic.conf
+ADD assets/11-monitoring-logz.conf /etc/nginx/conf.d/11-monitoring-logz.conf
+RUN rm -Rf /var/www/* && mkdir -p /var/www/html/ && \
+    echo "<?php phpinfo();" > /var/www/html/index.php && \
+    chown -R nginx. /var/www/html/
 
 EXPOSE 80/tcp 1234/tcp
-CMD ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisord.conf"]
+CMD ["/start.sh"]
